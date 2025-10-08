@@ -1,6 +1,7 @@
 import { Routes, Route, Link, NavLink } from "react-router-dom";
 import Home from "./pages/Home";
 import Admin from "./pages/Admin";
+import Details from "./pages/Details";
 import { Settings } from "lucide-react";
 
 export default function App() {
@@ -12,14 +13,14 @@ export default function App() {
             Super PF3
           </Link>
 
-          <nav className="flex gap-4">
-            <NavLink to="/" className="text-sm hover:underline"></NavLink>
+          <nav className="flex gap-2">
             <NavLink
               to="/admin"
-              className="flex items-center gap-1  px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 transition"
+              className="flex items-center gap-1 rounded-full border px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 transition"
               title="Painel de Administração"
             >
               <Settings size={18} strokeWidth={2} />
+              <span className="hidden sm:inline">Painel</span>
             </NavLink>
           </nav>
         </div>
@@ -29,6 +30,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/detalhes/:slug" element={<Details />} />
+          {/* <Route path="*" element={<div>Página não encontrada</div>} /> */}
         </Routes>
       </main>
 

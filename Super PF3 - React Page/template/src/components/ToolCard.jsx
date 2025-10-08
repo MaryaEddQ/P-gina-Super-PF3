@@ -1,4 +1,5 @@
-import { ExternalLink } from "lucide-react"; // npm i lucide-react (opcional)
+import { ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export default function ToolCard({ tool }) {
   return (
@@ -25,12 +26,11 @@ export default function ToolCard({ tool }) {
         {tool.badge && (
           <span
             className={`absolute left-3 top-3 rounded-full px-2.5 py-1 text-xs font-semibold shadow-sm
-      ${
-        tool.badge === "Novo"
-          ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300 animate-pulse"
-          : "bg-amber-100 text-amber-700 ring-1 ring-amber-300 animate-pulse"
-      }
-    `}
+              ${
+                tool.badge === "Novo"
+                  ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300 animate-pulse"
+                  : "bg-amber-100 text-amber-700 ring-1 ring-amber-300 animate-pulse"
+              }`}
           >
             {tool.badge}
           </span>
@@ -45,17 +45,26 @@ export default function ToolCard({ tool }) {
         <p className="mt-1 text-sm text-gray-600 line-clamp-6">
           {tool.description}
         </p>
-
-        {/* CTA */}
         <a
           href={tool.linkUrl}
           target="_blank"
           rel="noreferrer"
-          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm ring-1 ring-blue-600/10 hover:bg-blue-700 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
+          className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm ring-1 ring-blue-600/10 hover:bg-blue-700 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
         >
           Acessar ferramenta
           <ExternalLink className="h-4 w-4" />
         </a>
+        {/* 🔗 Link para página de detalhes */}
+        {tool.detailsSlug && (
+          <div className="mt-3 text-center">
+            <Link
+              to={`/detalhes/${tool.detailsSlug}`}
+              className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+            >
+              Ver detalhes →
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,3 +1,6 @@
+// ===============================
+// Imports e inicialização
+// ===============================
 const express = require("express");
 const cors = require("cors");
 const sqlite3 = require("sqlite3").verbose();
@@ -17,6 +20,9 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 // Caminho do banco de dados SQLite
 const dbFile = path.join(__dirname, "db.sqlite");
 const db = new sqlite3.Database(dbFile);
+
+// Ativa chaves estrangeiras no SQLite
+db.run("PRAGMA foreign_keys = ON");
 
 app.use(cors());
 app.use(express.json());
@@ -44,9 +50,10 @@ app.post("/api/upload", upload.single("image"), (req, res) => {
 });
 
 // ===============================
-// Criação da tabela (se não existir)
+// Criação das tabelas (se não existirem)
 // ===============================
 db.serialize(() => {
+  // Tabela principal
   db.run(`
     CREATE TABLE IF NOT EXISTS tools (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +66,32 @@ db.serialize(() => {
     )
   `);
 
-  // Dados de exemplo (só se o banco estiver vazio)
+  // Tabela de detalhes (1:1 com tools)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS tool_details (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tool_id INTEGER NOT NULL UNIQUE,
+      slug TEXT NOT NULL UNIQUE,
+      owner TEXT,
+      owner_contact TEXT,
+      update_schedule TEXT,
+      data_source TEXT,
+      data_source_url TEXT,
+      access_requirements TEXT,
+      tags TEXT,
+      content_md TEXT,
+      changelog_md TEXT,
+      content_html TEXT,
+      changelog_html TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (tool_id) REFERENCES tools(id)
+    )
+  `);
+  db.run(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_details_slug ON tool_details(slug)`
+  );
+
+  // Inserção inicial
   db.get("SELECT COUNT(*) as cnt FROM tools", (err, row) => {
     if (err) return console.error(err);
 
@@ -105,9 +137,15 @@ db.serialize(() => {
 // Teste rápido
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
-// Listar todas as ferramentas
+// Listar todas as ferramentas (com slug se existir)
 app.get("/api/tools", (req, res) => {
-  db.all("SELECT * FROM tools ORDER BY id DESC", [], (err, rows) => {
+  const sql = `
+    SELECT t.*, td.slug AS detailsSlug
+    FROM tools t
+    LEFT JOIN tool_details td ON td.tool_id = t.id
+    ORDER BY t.id DESC
+  `;
+  db.all(sql, [], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
@@ -191,6 +229,195 @@ app.delete("/api/tools/:id", (req, res) => {
     if (this.changes === 0) return res.status(404).json({ error: "Not found" });
     console.log(`🗑️ Ferramenta ID ${id} excluída`);
     res.status(204).end();
+  });
+});
+
+// ===============================
+// CRUD de detalhes das ferramentas
+// ===============================
+function toSlug(str = "") {
+  return String(str)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function isValidSlug(slug = "") {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length >= 3;
+}
+
+// Inserir ou atualizar detalhes (upsert)
+app.post("/api/tool-details", (req, res) => {
+  let {
+    tool_id,
+    slug,
+    owner,
+    owner_contact,
+    update_schedule,
+    data_source,
+    data_source_url,
+    access_requirements,
+    tags,
+    content_md,
+    changelog_md,
+    content_html,
+    changelog_html,
+  } = req.body;
+
+  if (!tool_id) return res.status(400).json({ error: "tool_id é obrigatório" });
+
+  slug = toSlug(slug || "");
+  if (!isValidSlug(slug)) {
+    return res.status(400).json({
+      error: "Slug inválido. Use minúsculas, números e hífens (min 3 chars).",
+    });
+  }
+
+  const updateSql = `
+    UPDATE tool_details
+       SET slug=?, owner=?, owner_contact=?, update_schedule=?, data_source=?,
+           data_source_url=?, access_requirements=?, tags=?, content_md=?, changelog_md=?,
+           content_html=?, changelog_html=?, updated_at=CURRENT_TIMESTAMP
+     WHERE tool_id=?;
+  `;
+
+  db.run(
+    updateSql,
+    [
+      slug,
+      owner,
+      owner_contact,
+      update_schedule,
+      data_source,
+      data_source_url,
+      access_requirements,
+      tags,
+      content_md,
+      changelog_md,
+      content_html,
+      changelog_html,
+      tool_id,
+    ],
+    function (err) {
+      if (err) {
+        if (
+          String(err.message).includes(
+            "UNIQUE constraint failed: tool_details.slug"
+          )
+        ) {
+          return res.status(409).json({ error: "Slug já está em uso" });
+        }
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (this.changes > 0) {
+        return db.get(
+          "SELECT * FROM tool_details WHERE tool_id=?",
+          [tool_id],
+          (e2, row) => {
+            if (e2) return res.status(500).json({ error: e2.message });
+            return res.json(row);
+          }
+        );
+      }
+
+      const insertSql = `
+        INSERT INTO tool_details
+          (tool_id, slug, owner, owner_contact, update_schedule, data_source,
+           data_source_url, access_requirements, tags, content_md, changelog_md,
+           content_html, changelog_html)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `;
+      db.run(
+        insertSql,
+        [
+          tool_id,
+          slug,
+          owner,
+          owner_contact,
+          update_schedule,
+          data_source,
+          data_source_url,
+          access_requirements,
+          tags,
+          content_md,
+          changelog_md,
+          content_html,
+          changelog_html,
+        ],
+        function (e3) {
+          if (e3) {
+            if (
+              String(e3.message).includes(
+                "UNIQUE constraint failed: tool_details.slug"
+              )
+            ) {
+              return res.status(409).json({ error: "Slug já está em uso" });
+            }
+            return res.status(500).json({ error: e3.message });
+          }
+          db.get(
+            "SELECT * FROM tool_details WHERE id=?",
+            [this.lastID],
+            (e4, row) => {
+              if (e4) return res.status(500).json({ error: e4.message });
+              return res.status(201).json(row);
+            }
+          );
+        }
+      );
+    }
+  );
+});
+
+// Buscar detalhes por tool_id (para o Admin)
+app.get("/api/tool-details/by-tool/:toolId", (req, res) => {
+  db.get(
+    "SELECT * FROM tool_details WHERE tool_id=?",
+    [req.params.toolId],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(row || null);
+    }
+  );
+});
+
+// Página de detalhes por slug (para o site)
+app.get("/api/tool-details/:slug", (req, res) => {
+  const slug = req.params.slug;
+  const sql = `
+    SELECT
+      t.id AS toolId,
+      t.title,
+      t.description,
+      t.imageUrl,
+      t.linkUrl,
+      t.badge,
+      td.id AS detailsId,
+      td.slug,
+      td.owner,
+      td.owner_contact,
+      td.update_schedule,
+      td.data_source,
+      td.data_source_url,
+      td.access_requirements,
+      td.tags,
+      td.content_md,
+      td.changelog_md,
+      td.content_html,
+      td.changelog_html,
+      td.updated_at
+    FROM tool_details td
+    JOIN tools t ON t.id = td.tool_id
+    WHERE td.slug = ?
+  `;
+  db.get(sql, [slug], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!row)
+      return res.status(404).json({ error: "Detalhes não encontrados" });
+    res.json(row);
   });
 });
 
