@@ -3,12 +3,12 @@ import { getTools, createTool, updateTool, deleteTool } from "../api";
 import { Pencil, Trash2 } from "lucide-react";
 import "react-quill/dist/quill.snow.css";
 
-// carregamento dinâmico do ReactQuill (evita erro de render)
 const ReactQuill = lazy(() => import("react-quill"));
 
 // Estrutura base de ferramenta
 const empty = {
   title: "",
+  category: "",
   description: "",
   imageUrl: "",
   linkUrl: "",
@@ -25,6 +25,7 @@ const quillModules = {
     ["clean"],
   ],
 };
+
 const quillFormats = [
   "header",
   "bold",
@@ -61,6 +62,7 @@ export default function Admin() {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)/g, "");
   }
+
   function isValidSlug(slug = "") {
     return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length >= 3;
   }
@@ -75,6 +77,7 @@ export default function Admin() {
       setError(e.message);
     }
   };
+
   useEffect(() => {
     load();
   }, []);
@@ -91,54 +94,6 @@ export default function Admin() {
     } catch {
       setDetails({ slug: "", content_md: "", content_html: "" });
     }
-  }
-
-  async function saveDetails(e) {
-    e.preventDefault();
-    if (!editingId) return;
-
-    const wantSave =
-      (details.slug && details.slug.trim().length > 0) ||
-      (details.content_md && details.content_md.trim().length > 0) ||
-      (details.content_html && details.content_html.trim().length > 0);
-
-    if (!wantSave) {
-      alert("Nada para salvar nos detalhes.");
-      return;
-    }
-
-    // gera slug se vazio mas houver conteúdo
-    let slug = (details.slug || "").trim();
-    if (!slug) slug = toSlug(form.title);
-
-    slug = toSlug(slug);
-    if (!isValidSlug(slug)) {
-      alert("Slug inválido. Use minúsculas, números e hífens (min 3 chars).");
-      return;
-    }
-
-    const payload = {
-      tool_id: editingId,
-      slug,
-      content_md: details.content_md || "",
-      content_html: details.content_html || "",
-    };
-
-    const res = await fetch("/api/tool-details", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      alert("Erro ao salvar detalhes: " + (err.error || res.status));
-      return;
-    }
-
-    setDetails((d) => ({ ...d, slug })); // normaliza na UI
-    alert("Detalhes salvos com sucesso!");
-    load();
   }
 
   // ==============================
@@ -165,13 +120,20 @@ export default function Admin() {
   };
 
   // ==============================
-  // CRUD de ferramentas
+  // CRUD de ferramentas + detalhes no mesmo botão
   // ==============================
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const payload = {
+      // valida mínimos da ferramenta
+      if (!form.title || !form.category || !form.description || !form.linkUrl) {
+        alert("Preencha título, categoria, descrição e link.");
+        return;
+      }
+
+      const payloadTool = {
         title: form.title,
+        category: form.category,
         description: form.description,
         imageUrl: form.imageUrl,
         linkUrl: form.linkUrl,
@@ -180,43 +142,46 @@ export default function Admin() {
 
       let createdOrEdited;
       if (editingId) {
-        await updateTool(editingId, payload);
+        await updateTool(editingId, payloadTool);
         createdOrEdited = { id: editingId };
       } else {
-        createdOrEdited = await createTool(payload); // { id, ... }
+        createdOrEdited = await createTool(payloadTool); // backend deve retornar { id, ... }
       }
 
-      // se houver QUALQUER conteúdo de detalhes, salvar (gera slug se faltar)
-      const hasAnyDetails =
+      // ---------------- DETALHES: dependem somente deste botão ----------------
+      const hasDetails =
         (details.slug && details.slug.trim().length > 0) ||
-        (details.content_md && details.content_md.trim().length > 0) ||
         (details.content_html && details.content_html.trim().length > 0);
 
-      if (hasAnyDetails) {
-        let slug = (details.slug || "").trim();
-        if (!slug) slug = toSlug(form.title);
-
+      if (hasDetails) {
+        let slug = (details.slug || toSlug(form.title || "")).trim();
         slug = toSlug(slug);
+
         if (!isValidSlug(slug)) {
           alert(
-            "Slug inválido. Use minúsculas, números e hífens (min 3 chars)."
+            "Slug inválido. Use minúsculas, números e hífens (min 3 caracteres)."
           );
         } else {
-          await fetch("/api/tool-details", {
+          const payloadDetails = {
+            tool_id: createdOrEdited.id,
+            slug,
+            content_md: details.content_md || "",
+            content_html: details.content_html || "",
+          };
+
+          const res = await fetch("/api/tool-details", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              tool_id: createdOrEdited.id,
-              slug,
-              content_md: details.content_md || "",
-              content_html: details.content_html || "",
-            }),
-          }).then(async (r) => {
-            if (!r.ok) {
-              const err = await r.json().catch(() => ({}));
-              throw new Error(err.error || "Erro ao salvar detalhes");
-            }
+            body: JSON.stringify(payloadDetails),
           });
+
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            console.error("Erro ao salvar detalhes:", err);
+            alert(err.error || "Erro ao salvar detalhes");
+          } else {
+            setDetails((d) => ({ ...d, slug })); // normaliza na UI
+          }
         }
       }
 
@@ -225,8 +190,13 @@ export default function Admin() {
       setDetails({ slug: "", content_md: "", content_html: "" });
       setEditingId(null);
       await load();
-      alert(editingId ? "Ferramenta atualizada!" : "Ferramenta publicada!");
+      alert(
+        editingId
+          ? "Ferramenta atualizada (detalhes incluídos se preenchidos)!"
+          : "Ferramenta publicada (detalhes incluídos se preenchidos)!"
+      );
     } catch (e2) {
+      console.error(e2);
       setError(e2.message);
       alert(e2.message);
     }
@@ -236,6 +206,7 @@ export default function Admin() {
     setEditingId(tool.id);
     setForm({
       title: tool.title,
+      category: tool.category || "",
       description: tool.description,
       imageUrl: tool.imageUrl,
       linkUrl: tool.linkUrl,
@@ -279,6 +250,17 @@ export default function Admin() {
               className="rounded-lg border p-2"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
+              required
+            />
+          </div>
+
+          {/* CATEGORIA */}
+          <div className="grid">
+            <label className="text-sm text-gray-700">Categoria*</label>
+            <input
+              className="rounded-lg border p-2"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
               required
             />
           </div>
@@ -342,8 +324,81 @@ export default function Admin() {
             </select>
           </div>
 
+          {/* ---------------- DETALHES (mesmo form, opcional) ---------------- */}
+          <div className="mt-4 border-t pt-4">
+            <h3 className="text-lg font-semibold mb-2">Página de Detalhes</h3>
+
+            {/* SLUG */}
+            <div className="grid mb-3">
+              <label className="text-sm text-gray-700">Slug (URL)</label>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 rounded-lg border p-2"
+                  placeholder="ex.: calculadora-price"
+                  value={details.slug}
+                  onChange={(e) =>
+                    setDetails({ ...details, slug: e.target.value })
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDetails((d) => ({ ...d, slug: toSlug(form.title) }))
+                  }
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  title="Gerar a partir do título"
+                >
+                  Gerar
+                </button>
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                Link final: <code>/detalhes/{details.slug || "<slug>"}</code>
+              </div>
+            </div>
+
+            {/* EDITOR VISUAL */}
+            <div className="grid mb-2">
+              <label className="text-sm text-gray-700">
+                Conteúdo da página (opcional, mas será salvo junto se preencher)
+              </label>
+              <Suspense
+                fallback={
+                  <div className="text-gray-400 text-sm">
+                    Carregando editor...
+                  </div>
+                }
+              >
+                <ReactQuill
+                  theme="snow"
+                  value={details.content_html}
+                  onChange={(html) =>
+                    setDetails((d) => ({ ...d, content_html: html || "" }))
+                  }
+                  modules={quillModules}
+                  formats={quillFormats}
+                  className="bg-white rounded-lg"
+                />
+              </Suspense>
+            </div>
+
+            {editingId && details.slug && (
+              <div className="text-xs text-blue-700 mt-1">
+                Página atual:{" "}
+                <a
+                  href={`/detalhes/${toSlug(details.slug)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  abrir em nova aba
+                </a>
+              </div>
+            )}
+          </div>
+
           {/* BOTÕES */}
-          <div className="flex gap-2">
+          <br></br>
+          <div className="flex gap-2 mt-4">
             <button className="rounded-xl bg-blue-600 text-white px-4 py-2">
               {editingId ? "Salvar alterações" : "Publicar"}
             </button>
@@ -360,85 +415,6 @@ export default function Admin() {
           </div>
         </form>
       </section>
-
-      {/* ---------------- DETALHES ---------------- */}
-      <form
-        onSubmit={saveDetails}
-        className="grid gap-3 bg-white border rounded-2xl p-4"
-      >
-        <h3 className="text-lg font-semibold">Página de Detalhes</h3>
-
-        {/* SLUG */}
-        <div className="grid">
-          <label className="text-sm text-gray-700">Slug (URL)</label>
-          <div className="flex gap-2">
-            <input
-              className="flex-1 rounded-lg border p-2"
-              placeholder="ex.: calculadora-price"
-              value={details.slug}
-              onChange={(e) => setDetails({ ...details, slug: e.target.value })}
-            />
-            <button
-              type="button"
-              onClick={() =>
-                setDetails((d) => ({ ...d, slug: toSlug(form.title) }))
-              }
-              className="rounded-lg border px-3 py-2 text-sm"
-              title="Gerar a partir do título"
-            >
-              Gerar
-            </button>
-          </div>
-          <div className="text-xs text-gray-500 mt-1">
-            Link final: <code>/detalhes/{details.slug || "<slug>"}</code>
-          </div>
-        </div>
-
-        {/* EDITOR VISUAL (lazy + Suspense) */}
-        <div className="grid mb-8">
-          <label className="text-sm text-gray-700">
-            Conteúdo (Editor visual)
-          </label>
-          <Suspense
-            fallback={
-              <div className="text-gray-400 text-sm">Carregando editor...</div>
-            }
-          >
-            <ReactQuill
-              theme="snow"
-              value={details.content_html}
-              onChange={(html) =>
-                setDetails((d) => ({ ...d, content_html: html || "" }))
-              }
-              modules={quillModules}
-              formats={quillFormats}
-              className="bg-white rounded-lg"
-            />
-          </Suspense>
-        </div>
-
-        {/* dica quando ainda não existe ferramenta */}
-        {!editingId && <p className="text-xs text-gray-500">.</p>}
-
-        {/* botões (somente quando editando) */}
-        {editingId && (
-          <div className="flex gap-2">
-            <button className="rounded-xl bg-blue-600 text-white px-4 py-2">
-              Salvar detalhes
-            </button>
-            {details.slug && (
-              <a
-                className="rounded-xl border px-4 py-2 text-blue-700 hover:bg-blue-50"
-                href={`/detalhes/${toSlug(details.slug)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Abrir página
-              </a>
-            )}
-          </div>
-        )}
-      </form>
 
       {/* ---------------- LISTAGEM ---------------- */}
       <section>
@@ -476,6 +452,8 @@ export default function Admin() {
                       </span>
                     )}
                   </div>
+                  {/* se quiser ver a categoria na lista */}
+                  {/* <div className="text-xs text-gray-500">{t.category}</div> */}
                   <div className="text-xs text-gray-500">{t.linkUrl}</div>
                 </div>
               </div>

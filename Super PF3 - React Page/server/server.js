@@ -58,6 +58,7 @@ db.serialize(() => {
     CREATE TABLE IF NOT EXISTS tools (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
+      category TEXT NOT NULL,
       description TEXT NOT NULL,
       imageUrl TEXT,
       linkUrl TEXT NOT NULL,
@@ -97,11 +98,12 @@ db.serialize(() => {
 
     if (row && row.cnt === 0) {
       const stmt = db.prepare(
-        "INSERT INTO tools (title, description, imageUrl, linkUrl, badge) VALUES (?,?,?,?,?)"
+        "INSERT INTO tools (title, category, description, imageUrl, linkUrl, badge) VALUES (?,?,?,?,?,?)"
       );
 
       stmt.run(
         "Calculadora PRICE",
+        "Agro",
         "Amortizações crescente/decrescente/linear com antecipação parcial.",
         "https://picsum.photos/seed/price/800/450",
         "https://exemplo.bb/price",
@@ -110,6 +112,7 @@ db.serialize(() => {
 
       stmt.run(
         "Dashboard Inadimplência",
+        "Agro",
         "KPIs de atraso por prefixo, agência e produto.",
         "https://picsum.photos/seed/inad/800/450",
         "https://exemplo.bb/inadimplencia",
@@ -118,6 +121,7 @@ db.serialize(() => {
 
       stmt.run(
         "Catálogo Super PF3",
+        "Agro",
         "Página com todas as ferramentas do Núcleo.",
         "https://picsum.photos/seed/catalogo/800/450",
         "https://exemplo.bb/catalogo",
@@ -162,7 +166,7 @@ app.get("/api/tools/:id", (req, res) => {
 
 // Criar nova ferramenta
 app.post("/api/tools", (req, res) => {
-  const { title, description, imageUrl, linkUrl, badge } = req.body;
+  const { title, category, description, imageUrl, linkUrl, badge } = req.body;
 
   if (!title || !description || !linkUrl) {
     return res
@@ -171,11 +175,11 @@ app.post("/api/tools", (req, res) => {
   }
 
   const sql =
-    "INSERT INTO tools (title, description, imageUrl, linkUrl, badge) VALUES (?,?,?,?,?)";
+    "INSERT INTO tools (title, category, description, imageUrl, linkUrl, badge) VALUES (?,?,?,?,?,?)";
 
   db.run(
     sql,
-    [title, description, imageUrl || "", linkUrl, badge || null],
+    [title, category, description, imageUrl || "", linkUrl, badge || null],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
 
@@ -192,18 +196,18 @@ app.post("/api/tools", (req, res) => {
 
 // Atualizar ferramenta existente
 app.put("/api/tools/:id", (req, res) => {
-  const { title, description, imageUrl, linkUrl, badge } = req.body;
+  const { title, category, description, imageUrl, linkUrl, badge } = req.body;
   const id = req.params.id;
 
   const sql = `
     UPDATE tools
-    SET title=?, description=?, imageUrl=?, linkUrl=?, badge=?
+    SET title=?, category=?, description=?, imageUrl=?, linkUrl=?, badge=?
     WHERE id=?;
   `;
 
   db.run(
     sql,
-    [title, description, imageUrl || "", linkUrl, badge || null, id],
+    [title, category, description, imageUrl || "", linkUrl, badge || null, id],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       if (this.changes === 0)
@@ -220,15 +224,30 @@ app.put("/api/tools/:id", (req, res) => {
   );
 });
 
-// Deletar ferramenta
+// Deletar ferramenta (apaga detalhes antes)
 app.delete("/api/tools/:id", (req, res) => {
   const id = req.params.id;
 
-  db.run("DELETE FROM tools WHERE id=?", [id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: "Not found" });
-    console.log(`🗑️ Ferramenta ID ${id} excluída`);
-    res.status(204).end();
+  db.serialize(() => {
+    // 1) apaga detalhes vinculados (se existirem)
+    db.run("DELETE FROM tool_details WHERE tool_id = ?", [id], function (err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+
+      // 2) apaga a ferramenta em si
+      db.run("DELETE FROM tools WHERE id = ?", [id], function (err2) {
+        if (err2) {
+          return res.status(500).json({ error: err2.message });
+        }
+        if (this.changes === 0) {
+          return res.status(404).json({ error: "Not found" });
+        }
+
+        console.log(`🗑️ Ferramenta ID ${id} e detalhes (se houver) excluídos`);
+        res.status(204).end();
+      });
+    });
   });
 });
 
