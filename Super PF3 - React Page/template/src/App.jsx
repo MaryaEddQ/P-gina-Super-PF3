@@ -10,7 +10,7 @@ export default function App() {
       <header className="sticky top-0 z-10 bg-white/70 backdrop-blur border-b">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link to="/" className="text-2xl font-bold text-blue-800">
-            Super PF3
+            Super PF³
           </Link>
 
           <nav className="flex gap-2">

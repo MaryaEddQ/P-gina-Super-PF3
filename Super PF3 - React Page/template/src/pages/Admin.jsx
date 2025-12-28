@@ -358,9 +358,7 @@ export default function Admin() {
 
             {/* EDITOR VISUAL */}
             <div className="grid mb-2">
-              <label className="text-sm text-gray-700">
-                Conteúdo da página (opcional, mas será salvo junto se preencher)
-              </label>
+              <label className="text-sm text-gray-700"></label>
               <Suspense
                 fallback={
                   <div className="text-gray-400 text-sm">
